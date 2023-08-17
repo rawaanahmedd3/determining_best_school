@@ -1,0 +1,106 @@
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder
+from sklearn.feature_selection import VarianceThreshold
+from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import KMeans
+from sklearn.cluster import Birch
+from sklearn.cluster import MiniBatchKMeans
+from sklearn.cluster import DBSCAN
+from sklearn.cluster import AffinityPropagation
+import matplotlib.pyplot as plt
+
+# preprocessing steps to clean data
+missing_values = ["na", "N/A", np.nan]
+df = pd.read_csv("CollegeScorecard.csv", na_values=missing_values, low_memory=False)
+print("1-Dataframe size >>", df.shape)
+print("2-Number of duplicates in data = ", df.duplicated().sum())  # show number of all duplicates in data
+print("3-Number of null values in data = ", df.isnull().sum().sum())  # calculate total missing values in data
+
+new_df = df.replace(to_replace="PrivacySuppressed", value=np.nan)  # to empty the privacy cells
+new_df = new_df.dropna(how='all', axis=1)  # drop all empty columns, and we don't have empty rows
+new_df = new_df.drop(columns=['UNITID', 'OPEID', 'opeid6'])  # drop unnecessary columns
+
+for column_name in new_df.columns:  # loop on all columns to start remove un effective ones
+    column = new_df[column_name]
+    count1 = (column == 0).sum()  # count number of Zeros in each column
+    count2 = (column == 1).sum()  # count number of ones in each column
+    count3 = column.isnull().sum()  # count number of nulls in each column
+    count4 = column.nunique()  # count number of unique values in each column to be removed if it is assumed to be categorical
+    if count1 >= 3902 or count2 >= 3902 or count3 >= 3902 or count4 >= 3902:  # 50% of column
+        new_df = new_df.drop(column_name, axis=1)  # we will reach 162 columns
+
+for row in range(len(new_df)):  # loop on all rows to start remove unnecessary ones
+    count5 = new_df.loc[[row]].isna().sum().sum()  # count number of nulls in each row
+    if count5 >= 33:  # 20% of row
+        new_df = new_df.drop(row)  # we will reach 4266 rows
+
+print("4-New dataframe size >>", new_df.shape)
+print("5-Number of remaining null values after dropping cols & rows = ", new_df.isnull().sum().sum())  # show number of remaining missing values in data after dropping columns
+
+# fill missing values using different techniques
+# 1.new_df.fillna(method='bfill', inplace=True)  # fill with previous values
+# new_df.fillna(method='ffill', inplace=True)  # fill with next values
+# 2.
+for col in new_df.columns:
+    new_df[col].fillna(new_df[col].mode()[0], inplace=True)  # fill with most occurred value in column
+
+# updated file after preprocessing
+new_csv = new_df.to_csv('updated_sheet.csv', index=True)
+
+# encoding data
+encode = LabelEncoder()
+for col in new_df.columns:
+    if new_df[col].dtype == 'O':  # convert string columns to be able to apply feature selection & models
+        new_df[col] = encode.fit_transform(new_df[col])
+
+# apply feature selection (removes all the low variance features from the dataset that are of no great use in modeling)
+VT = VarianceThreshold(threshold=0.5)  # VT > 0 Remove Semi-Constant Features (if VT=0 it will remove constant ones)
+VT = VT.fit_transform(new_df)  # keep only columns with high variance
+print("6-Data size after applying feature selection >>", VT.shape)
+
+# apply 5 different models
+print("CLUSTERS------------------------------------------------------------------------------------------")
+print("1st Agglomerative:")
+agg = AgglomerativeClustering(n_clusters=3).fit_predict(VT)
+print("Labels:", agg)
+plt.scatter(VT[:, 0], VT[:, 1], c=agg, cmap='viridis', alpha=1)
+plt.title("Agglomerative Diagram")
+plt.show()
+
+print("2nd Kmeans:")
+kmeans = KMeans(n_clusters=3).fit_predict(VT)
+print("Labels:", kmeans)
+labels = np.unique(kmeans)
+for i in labels:  # iterates filtering the data according to each unique class one iteration at a time (filters and keeps the data points that belong to cluster label i)
+    plt.scatter(VT[kmeans == i, 0], VT[kmeans == i, 1], label=i)
+plt.title("Kmeans Diagram")
+plt.show()
+
+print("3rd Birch:")
+b = Birch(threshold=1.5, n_clusters=3).fit_predict(VT)  # other way of modeling for mini batches kmeans
+print("Labels:", b)
+plt.scatter(VT[:, 0], VT[:, 1], c=b, cmap='rainbow', alpha=0.7, edgecolors='b')
+plt.title("Birch Diagram")
+plt.show()
+
+print("4th Mini batches k-means")
+mbk = MiniBatchKMeans(n_clusters=3).fit_predict(VT)  # better version of kmeans and faster one in processing
+print("Labels:", mbk)
+plt.scatter(VT[:, 0], VT[:, 1], c=mbk, cmap='viridis', alpha=1, edgecolors='k')
+plt.title("Mini Batches Kmeans Diagram")
+plt.show()
+
+print("5th DBSCAN :\n -The graph only.")
+dbscan = DBSCAN(eps=0.8, min_samples=10).fit_predict(VT)  # labels are useless as it depends on the objects which go together to form cluster
+plt.scatter(VT[:, 0], VT[:, 1], c=dbscan, cmap='rainbow', alpha=0.7, edgecolors='b')
+plt.title("DBSCAN Diagram")
+plt.show()
+
+print("6th Affinity propagation:")
+ap = AffinityPropagation(damping=0.7).fit_predict(VT)
+print("Labels:", ap)
+plt.scatter(VT[:, 0], VT[:, 1], c=ap, cmap='viridis', alpha=0.6)
+plt.title("Affinity Propagation Diagram")
+plt.show()
+
